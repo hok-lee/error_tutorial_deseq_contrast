@@ -1,0 +1,87 @@
+---
+title: "Error in using contrast"
+author: "Wilfred Lee"
+date: '2022-07-28'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(DESeq2)
+library(dplyr)
+```
+
+# Make example data set with three conditions.
+
+Create some random data:
+```{r}
+dds <- makeExampleDESeqDataSet(n=100, m=20, betaSD=1)
+```
+
+## Modify colData
+ 
+```{r}
+data_frame_colData <- dds@colData
+colnames(data_frame_colData)[1] <- "treatment"
+data_frame_colData$gender <- factor(sample(c("m", "f"), size = 20, replace = TRUE))
+data_frame_colData$age <- factor(sample(c(10, 20, 30), size = 20, replace = TRUE))
+data_frame_colData
+```
+
+```{r}
+colData(dds) <- data_frame_colData
+design(dds) <- ~ treatment     # Has to do this because the "condition" column no longer exists in colData.
+dds
+# Same as:
+# dds@colData <- data_frame_colData
+# dds@design <- ~ treatment   
+```
+
+## Setting reference levels
+
+Set a custom reference level for each condition:
+```{r}
+dds$treatment <- relevel(dds$treatment, ref = "A")    #Not really needed for dds$treatment because already in the right order, but do this just in case.
+dds$gender <- relevel(dds$gender, ref = "m")
+dds$age <- relevel(dds$age, ref = "20")
+
+```
+
+
+## Age and treatment
+
+To account for the effect of gender on treatment:
+```{r message=FALSE}
+dds_age_treatment <- dds
+design(dds_age_treatment) <- ~age + treatment
+dds_age_treatment <- DESeq(dds_age_treatment)
+```
+
+```{r}
+results(dds_age_treatment, contrast = c("age", "30", "20"))
+# Same as results(dds_age_treatment, contrast = list("age_30_vs_20", "age_10_vs_20"))
+```
+### Using the model matrix (not correct)
+Another (appear to be incorrect) way to get the result, as given in [this tutorial](https://github.com/tavareshugo/tutorial_DESeq2_contrasts/) is:
+```{r}
+matrix_model <- model.matrix(design(dds_age_treatment), colData(dds_age_treatment))
+array_for_contrast_10 <- colMeans(matrix_model[dds_age_treatment$age == "10", ])
+array_for_contrast_20 <- colMeans(matrix_model[dds_age_treatment$age == "20", ])
+array_for_contrast_30 <- colMeans(matrix_model[dds_age_treatment$age == "30", ])
+
+array_for_contrast_A <- colMeans(matrix_model[dds_age_treatment$treatment == "A", ])
+array_for_contrast_B <- colMeans(matrix_model[dds_age_treatment$treatment == "B", ])
+```
+
+```{r}
+results(dds_age_treatment, contrast = array_for_contrast_30 - array_for_contrast_10 )
+```
+Unlike what was claimed in [the tutorial](https://github.com/tavareshugo/tutorial_DESeq2_contrasts/), the results does not match with `results(dds_age_treatment, contrast = c("age", "30", "10"))`. 
+
+The two results below also disagree:
+```{r}
+results(dds_age_treatment, contrast = array_for_contrast_B - array_for_contrast_A)
+results(dds_age_treatment)
+```
+
